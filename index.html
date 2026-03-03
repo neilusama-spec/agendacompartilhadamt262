@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Agenda MT">
+<meta name="theme-color" content="#0f0f1a">
+<title>Agenda Oficial Marcos Tavares</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    background: linear-gradient(135deg, #0f0f1a 0%, #1a1030 50%, #0d1a2a 100%);
+    background-attachment: fixed;
+    min-height: 100vh;
+    font-family: -apple-system, Georgia, serif;
+    color: #e8e0f0;
+  }
+  input, button { -webkit-appearance: none; appearance: none; font-family: inherit; }
+  input[type=date]::-webkit-calendar-picker-indicator,
+  input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.6); cursor: pointer; }
+  button { cursor: pointer; transition: opacity 0.15s, transform 0.1s; }
+  button:active { transform: scale(0.96); opacity: 0.8; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  @keyframes slideUp { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: none; } }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-thumb { background: rgba(124,58,237,0.4); border-radius: 2px; }
+
+  .tabs-scroll { display: flex; gap: 8px; overflow-x: auto; padding: 12px 18px; scrollbar-width: none; }
+  .tabs-scroll::-webkit-scrollbar { display: none; }
+
+  .modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.8);
+    display: flex; align-items: flex-end; justify-content: center;
+    z-index: 200; backdrop-filter: blur(6px);
+  }
+  @media (min-width: 600px) {
+    .modal-overlay { align-items: center; }
+    .modal-box { border-radius: 16px !important; }
+  }
+  .modal-box {
+    background: #1a1030;
+    border: 1px solid rgba(124,58,237,0.35);
+    border-radius: 20px 20px 0 0;
+    padding: 20px 20px 32px;
+    width: 100%; max-width: 480px;
+    max-height: 92vh; overflow-y: auto;
+    animation: slideUp 0.25s ease;
+  }
+  .modal-handle { width: 36px; height: 4px; background: rgba(255,255,255,0.2); border-radius: 2px; margin: 0 auto 18px; }
+
+  .field-input {
+    width: 100%;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 10px;
+    padding: 12px 14px;
+    color: #f0e8ff;
+    font-size: 16px;
+    transition: border-color 0.2s;
+  }
+  .field-input:focus { outline: none; border-color: rgba(124,58,237,0.6); }
+  .field-label { font-size: 11px; letter-spacing: 2px; color: #7c6a9a; text-transform: uppercase; display: block; margin-bottom: 6px; }
+
+  .apt-card { transition: background 0.2s; }
+
+  .toast {
+    position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
+    padding: 10px 22px; border-radius: 20px; font-size: 13px; letter-spacing: 0.5px;
+    z-index: 999; backdrop-filter: blur(10px); animation: slideUp 0.3s ease;
+    white-space: nowrap;
+  }
+  .toast.ok  { background: rgba(74,222,128,0.15); border: 1px solid rgba(74,222,128,0.3); color: #4ade80; }
+  .toast.err { background: rgba(239,68,68,0.15);  border: 1px solid rgba(239,68,68,0.3);  color: #f87171; }
+  .toast.inf { background: rgba(124,58,237,0.2);  border: 1px solid rgba(124,58,237,0.4); color: #c4b5fd; }
+
+  .sync-dot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:5px; vertical-align:middle; }
+  .sync-dot.ok      { background:#4ade80; }
+  .sync-dot.loading { background:#a78bfa; animation: pulse 1s infinite; }
+  .sync-dot.err     { background:#f87171; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+const API_KEY   = "$2a$10$4Jqh1NmW33nGeieOI3oTpOKr1c.tMqfA97IJfm4.VhoINoeV/ESim";
+const BIN_ID_LS = "agenda-mt-binid-v1";
+const LOCAL_LS  = "agenda-mt-local-v1";
+
+const INITIAL = [
+  { id:1, name:"Washington Petrópolis",                          date:"2026-02-27", time:"09:00", local:"QG", confirmed:true },
+  { id:2, name:"David Valença",                                  date:"2026-02-27", time:"14:00", local:"QG", confirmed:true },
+  { id:3, name:"Deyvid Motta",                                   date:"2026-02-27", time:"16:00", local:"QG", confirmed:true },
+  { id:4, name:"Selma Protetora Magé e Angel Jornal Mensageiro", date:"2026-02-27", time:"17:00", local:"QG", confirmed:true },
+  { id:5, name:"Valmir",                                         date:"2026-02-27", time:"18:00", local:"QG", confirmed:true },
+  { id:6, name:"Paulo Ferreira Amigo Rogerinho",                 date:"2026-02-27", time:"19:00", local:"",   confirmed:true },
+  { id:7, name:"Celinho",                                        date:"2026-02-27", time:"19:30", local:"QG", confirmed:true },
+  { id:8, name:"Luiza - Antônio Galáctico",                      date:"2026-02-27", time:"20:00", local:"QG", confirmed:true },
+];
+
+async function binCreate(data) {
+  const r = await fetch("https://api.jsonbin.io/v3/b", {
+    method:"POST",
+    headers:{"Content-Type":"application/json","X-Master-Key":API_KEY,"X-Bin-Name":"agenda-marcos-tavares"},
+    body: JSON.stringify({appointments:data})
+  });
+  if(!r.ok) throw new Error();
+  return (await r.json()).metadata.id;
+}
+async function binRead(id) {
+  const r = await fetch(`https://api.jsonbin.io/v3/b/${id}/latest`,{headers:{"X-Master-Key":API_KEY}});
+  if(!r.ok) throw new Error();
+  return (await r.json()).record.appointments || [];
+}
+async function binWrite(id, data) {
+  const r = await fetch(`https://api.jsonbin.io/v3/b/${id}`,{
+    method:"PUT",
+    headers:{"Content-Type":"application/json","X-Master-Key":API_KEY},
+    body: JSON.stringify({appointments:data})
+  });
+  if(!r.ok) throw new Error();
+}
+
+function App() {
+  const [apts,       setApts]       = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [sync,       setSync]       = useState("loading");
+  const [filterDate, setFilterDate] = useState("2026-02-27");
+  const [showForm,   setShowForm]   = useState(false);
+  const [editingId,  setEditingId]  = useState(null);
+  const [form,       setForm]       = useState({name:"",date:"2026-02-27",time:"",local:"QG",confirmed:false});
+  const [toast,      setToast]      = useState(null);
+  const binId   = useRef(null);
+  const timer   = useRef(null);
+
+  useEffect(()=>{
+    (async()=>{
+      const saved = localStorage.getItem(BIN_ID_LS);
+      try {
+        if(saved) {
+          binId.current = saved;
+          const data = await binRead(saved);
+          setApts(data.length ? data : INITIAL);
+        } else {
+          flash("⏳ Preparando nuvem pela primeira vez...","inf",6000);
+          const id = await binCreate(INITIAL);
+          localStorage.setItem(BIN_ID_LS, id);
+          binId.current = id;
+          setApts(INITIAL);
+          flash("☁️ Nuvem pronta! Agora é só compartilhar o link.","ok",4000);
+        }
+        setSync("ok");
+      } catch {
+        const local = localStorage.getItem(LOCAL_LS);
+        setApts(local ? JSON.parse(local) : INITIAL);
+        setSync("err");
+        flash("Sem internet — dados locais","err");
+      }
+      setLoading(false);
+    })();
+  },[]);
+
+  const persist = useCallback((data)=>{
+    localStorage.setItem(LOCAL_LS, JSON.stringify(data));
+    setApts(data);
+    setSync("loading");
+    clearTimeout(timer.current);
+    timer.current = setTimeout(async()=>{
+      try {
+        await binWrite(binId.current, data);
+        setSync("ok");
+        flash("☁️ Sincronizado com sucesso","ok",1600);
+      } catch {
+        setSync("err");
+        flash("Salvo local — sem internet","err");
+      }
+    }, 600);
+  },[]);
+
+  function flash(msg, type="ok", dur=2500) {
+    setToast({msg,type});
+    setTimeout(()=>setToast(null), dur);
+  }
+
+  function openAdd() {
+    setForm({name:"", date:filterDate||new Date().toISOString().slice(0,10), time:"", local:"QG", confirmed:false});
+    setEditingId(null); setShowForm(true);
+  }
+  function openEdit(a) {
+    setForm({name:a.name,date:a.date,time:a.time,local:a.local,confirmed:a.confirmed});
+    setEditingId(a.id); setShowForm(true);
+  }
+  function handleSave() {
+    if(!form.name.trim()||!form.date||!form.time){flash("Preencha Nome, Data e Horário","err");return;}
+    let u = editingId
+      ? apts.map(a=>a.id===editingId?{...a,...form}:a)
+      : [...apts,{id:Date.now(),...form}];
+    u.sort((a,b)=>`${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`));
+    persist(u); setShowForm(false);
+  }
+  function handleDelete(id) {
+    if(!confirm("Excluir este compromisso?")) return;
+    persist(apts.filter(a=>a.id!==id));
+  }
+  function toggleConfirm(id) {
+    persist(apts.map(a=>a.id===id?{...a,confirmed:!a.confirmed}:a));
+  }
+
+  function exportICS() {
+    let ics="BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Agenda MT//PT\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\n";
+    apts.forEach(a=>{
+      const [h,m]=a.time.split(':').map(Number), tot=h*60+m+60;
+      const d=a.date.replace(/-/g,''), t=a.time.replace(':','');
+      const eH=String(Math.floor(tot/60)).padStart(2,'0'), eM=String(tot%60).padStart(2,'0');
+      ics+=`BEGIN:VEVENT\r\nUID:${a.id}@mt\r\nSUMMARY:${a.name}\r\nDTSTART;TZID=America/Sao_Paulo:${d}T${t}00\r\nDTEND;TZID=America/Sao_Paulo:${d}T${eH}${eM}00\r\n${a.local?`LOCATION:${a.local}\r\n`:''}STATUS:${a.confirmed?'CONFIRMED':'TENTATIVE'}\r\nEND:VEVENT\r\n`;
+    });
+    ics+="END:VCALENDAR";
+    const url=URL.createObjectURL(new Blob([ics],{type:'text/calendar;charset=utf-8'}));
+    Object.assign(document.createElement('a'),{href:url,download:'agenda-marcos-tavares.ics'}).click();
+    URL.revokeObjectURL(url);
+  }
+
+  const filtered = apts.filter(a=>!filterDate||a.date===filterDate);
+  const dates    = [...new Set(apts.map(a=>a.date))].sort();
+  const fmtDate  = d=>{const[,m,day]=d.split('-');return`${day}/${m}`;};
+  const dayName  = d=>new Date(d+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'long'});
+  const syncLabel= {loading:"Sincronizando...",ok:"Sincronizado",err:"Offline"}[sync];
+  const syncCls  = {loading:"loading",ok:"ok",err:"err"}[sync];
+
+  if(loading) return (
+    <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',flexDirection:'column',gap:14}}>
+      <div style={{fontSize:40}}>📅</div>
+      <div style={{color:'#a78bfa',fontSize:14,letterSpacing:2}}>Carregando agenda...</div>
+    </div>
+  );
+
+  return (
+    <div style={{minHeight:'100vh'}}>
+
+      {/* Header */}
+      <div style={{background:'rgba(255,255,255,0.04)',borderBottom:'1px solid rgba(255,255,255,0.08)',padding:'16px 18px',paddingTop:'calc(16px + env(safe-area-inset-top,0px))'}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:10}}>
+          <div>
+            <div style={{fontSize:10,letterSpacing:4,color:'#a78bfa',textTransform:'uppercase',marginBottom:3}}>Agenda Oficial</div>
+            <h1 style={{fontSize:21,fontWeight:'600',color:'#f0e8ff'}}>Marcos Tavares</h1>
+          </div>
+          <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+            <div style={{fontSize:12,color:'#888',display:'flex',alignItems:'center'}}>
+              <span className={`sync-dot ${syncCls}`}/>{syncLabel}
+            </div>
+            <button onClick={exportICS} style={{background:'transparent',border:'1px solid rgba(255,255,255,0.15)',borderRadius:8,padding:'7px 12px',color:'#a78bfa',fontSize:13}}>⬇ .ICS</button>
+            <button onClick={openAdd}   style={{background:'linear-gradient(135deg,#7c3aed,#4f46e5)',border:'none',borderRadius:8,padding:'8px 16px',color:'#fff',fontSize:13,fontWeight:'600'}}>+ Novo</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="tabs-scroll">
+        <button onClick={()=>setFilterDate('')} style={{padding:'7px 14px',borderRadius:20,border:'1px solid rgba(255,255,255,0.15)',background:!filterDate?'#7c3aed':'transparent',color:!filterDate?'#fff':'#a78bfa',fontSize:12,whiteSpace:'nowrap',flexShrink:0}}>
+          Todos ({apts.length})
+        </button>
+        {dates.map(d=>(
+          <button key={d} onClick={()=>setFilterDate(d)} style={{padding:'7px 14px',borderRadius:20,border:'1px solid rgba(255,255,255,0.15)',background:filterDate===d?'#7c3aed':'transparent',color:filterDate===d?'#fff':'#a78bfa',fontSize:12,whiteSpace:'nowrap',flexShrink:0}}>
+            {fmtDate(d)} · {dayName(d)}
+          </button>
+        ))}
+      </div>
+
+      {filterDate&&filtered.length>0&&(
+        <div style={{padding:'2px 18px 10px',fontSize:11,letterSpacing:3,color:'#7c3aed',textTransform:'uppercase'}}>
+          {dayName(filterDate)} · {filtered.length} compromisso{filtered.length!==1?'s':''}
+        </div>
+      )}
+
+      {/* List */}
+      <div style={{padding:'0 14px 60px',display:'grid',gap:10}}>
+        {filtered.length===0&&(
+          <div style={{textAlign:'center',padding:'60px 20px',color:'#444'}}>
+            <div style={{fontSize:38,marginBottom:12}}>📅</div>
+            <div style={{fontSize:15,marginBottom:16}}>Nenhum compromisso</div>
+            <button onClick={openAdd} style={{background:'rgba(124,58,237,0.2)',border:'1px solid rgba(124,58,237,0.3)',borderRadius:10,padding:'10px 20px',color:'#c4b5fd',fontSize:14}}>+ Adicionar</button>
+          </div>
+        )}
+        {filtered.map((apt,i)=>(
+          <div key={apt.id} className="apt-card" style={{
+            background:apt.confirmed?'rgba(124,58,237,0.08)':'rgba(255,255,255,0.03)',
+            border:`1px solid ${apt.confirmed?'rgba(124,58,237,0.25)':'rgba(255,255,255,0.07)'}`,
+            borderRadius:14,padding:'13px 14px',
+            display:'flex',alignItems:'center',gap:12,
+            animation:`fadeIn 0.3s ease ${Math.min(i,8)*0.04}s both`
+          }}>
+            <div style={{minWidth:50,textAlign:'center'}}>
+              <div style={{fontSize:16,fontWeight:'700',color:apt.confirmed?'#c4b5fd':'#555'}}>{apt.time}</div>
+              {!filterDate&&<div style={{fontSize:10,color:'#555',marginTop:2}}>{fmtDate(apt.date)}</div>}
+            </div>
+            <div style={{width:2,height:32,background:apt.confirmed?'rgba(124,58,237,0.6)':'rgba(255,255,255,0.08)',borderRadius:2,flexShrink:0}}/>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:14,color:apt.confirmed?'#f0e8ff':'#666',fontWeight:apt.confirmed?'600':'normal',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{apt.name}</div>
+              {apt.local&&<div style={{fontSize:11,color:'#7c6a9a',marginTop:3}}>📍 {apt.local}</div>}
+            </div>
+            <div style={{display:'flex',gap:5,flexShrink:0}}>
+              <button onClick={()=>toggleConfirm(apt.id)} style={{width:32,height:32,borderRadius:8,border:'none',background:apt.confirmed?'rgba(74,222,128,0.15)':'rgba(255,255,255,0.06)',fontSize:15}}>
+                {apt.confirmed?'✅':'⬜'}
+              </button>
+              <button onClick={()=>openEdit(apt)} style={{width:32,height:32,borderRadius:8,border:'none',background:'rgba(255,255,255,0.06)',fontSize:14}}>✏️</button>
+              <button onClick={()=>handleDelete(apt.id)} style={{width:32,height:32,borderRadius:8,border:'none',background:'rgba(239,68,68,0.08)',fontSize:14}}>🗑️</button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Modal */}
+      {showForm&&(
+        <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&setShowForm(false)}>
+          <div className="modal-box">
+            <div className="modal-handle"/>
+            <h2 style={{marginBottom:18,fontSize:17,color:'#c4b5fd',fontWeight:'600'}}>
+              {editingId?'✏️ Editar Compromisso':'➕ Novo Compromisso'}
+            </h2>
+            <div style={{display:'grid',gap:14}}>
+              <div>
+                <label className="field-label">Nome / Compromisso</label>
+                <input className="field-input" type="text" value={form.name} placeholder="Nome ou descrição" onChange={e=>setForm(p=>({...p,name:e.target.value}))} autoFocus/>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                <div>
+                  <label className="field-label">Data</label>
+                  <input className="field-input" type="date" value={form.date} onChange={e=>setForm(p=>({...p,date:e.target.value}))}/>
+                </div>
+                <div>
+                  <label className="field-label">Horário</label>
+                  <input className="field-input" type="time" value={form.time} onChange={e=>setForm(p=>({...p,time:e.target.value}))}/>
+                </div>
+              </div>
+              <div>
+                <label className="field-label">Local</label>
+                <input className="field-input" type="text" value={form.local} placeholder="Ex: QG" onChange={e=>setForm(p=>({...p,local:e.target.value}))}/>
+              </div>
+              <label style={{display:'flex',alignItems:'center',gap:12,cursor:'pointer',padding:'10px 14px',background:'rgba(255,255,255,0.04)',borderRadius:10}}>
+                <input type="checkbox" checked={form.confirmed} onChange={e=>setForm(p=>({...p,confirmed:e.target.checked}))} style={{width:18,height:18,accentColor:'#7c3aed'}}/>
+                <span style={{fontSize:14,color:'#c4b5fd'}}>Confirmar compromisso</span>
+              </label>
+            </div>
+            <div style={{display:'flex',gap:10,marginTop:18}}>
+              <button onClick={()=>setShowForm(false)} style={{flex:1,padding:'12px',background:'transparent',border:'1px solid rgba(255,255,255,0.15)',borderRadius:10,color:'#888',fontSize:15}}>Cancelar</button>
+              <button onClick={handleSave} style={{flex:2,padding:'12px',background:'linear-gradient(135deg,#7c3aed,#4f46e5)',border:'none',borderRadius:10,color:'#fff',fontSize:15,fontWeight:'600'}}>Salvar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast&&<div className={`toast ${toast.type}`}>{toast.msg}</div>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
